@@ -18,3 +18,4 @@ tensorboard = ">=2.21.0,<3"
 [pypi-dependencies]
 torch = ">=2.10.0, <3"
 gymnasium = { version = ">=1.4.0, <2", extras = ["mujoco"] }
+adaptive-rl = { path = ".", editable = true }
