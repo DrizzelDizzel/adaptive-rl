@@ -6,16 +6,18 @@ platforms = ['osx-arm64']
 version = "0.1.0"
 
 [tasks]
+smoke = "python scripts/crazyflow_smoke.py"
+smoke-render = "python scripts/crazyflow_smoke.py --render"
 
+# Only Python comes from conda; everything else from PyPI, so no package exists twice.
 [dependencies]
 python = "3.11.*"
-numpy = ">=2.4.6,<3"
-matplotlib = ">=3.11.2,<4"
-pyyaml = ">=6.0.3,<7"
-pytest = ">=9.2.0,<10"
-tensorboard = ">=2.21.0,<3"
 
 [pypi-dependencies]
-torch = ">=2.10.0, <3"
-gymnasium = { version = ">=1.4.0, <2", extras = ["mujoco"] }
+# Drone simulator (JAX + MuJoCo). Brings jax, numpy, scipy, mujoco, mujoco-mjx, gymnasium, flax.
+crazyflow = ">=0.4.0, <0.5"
+# Guard: mujoco and mujoco-mjx must share the major version. Since 4.0 both install into the
+# same folder via mujoco-core; a 3.x/4.x mix breaks `import mujoco`.
+mujoco = ">=4.0.0, <5"
+mujoco-mjx = ">=4.0.0, <5"
 adaptive-rl = { path = ".", editable = true }

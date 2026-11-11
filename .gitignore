@@ -7,3 +7,6 @@ results/
 runs/
 wandb/
 .DS_Store
+
+# MuJoCo runtime log
+MUJOCO_LOG.TXT
