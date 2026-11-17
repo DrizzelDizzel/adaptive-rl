@@ -3,7 +3,8 @@
 import numpy as np
 
 from adaptive_rl.controllers import GRAVITY, CascadedController, vee
-from adaptive_rl.reference import Circle
+from adaptive_rl.excitation import HeldNoise
+from adaptive_rl.reference import Circle, SumOfSines
 
 
 def hat(w: np.ndarray) -> np.ndarray:
@@ -41,3 +42,28 @@ def test_controller_tilts_towards_position_error():
     u = CascadedController(mass)(x, (np.array([0.1, 0.0, 0.0]), np.zeros(3), np.zeros(3)))
     assert u[1] > 0.0
     assert abs(u[0]) < 1e-12 and abs(u[2]) < 1e-12
+
+
+def test_sum_of_sines_derivatives_and_bounds():
+    ref, h = SumOfSines(center=(0.0, 0.0, 1.5), amplitude=(0.8, 0.8, 0.3), seed=3), 1e-5
+    for t in [0.0, 5.3, 41.0]:
+        p_minus, v_minus, _ = ref(t - h)
+        p_plus, v_plus, _ = ref(t + h)
+        p, v, a = ref(t)
+        np.testing.assert_allclose((p_plus - p_minus) / (2 * h), v, atol=1e-6)
+        np.testing.assert_allclose((v_plus - v_minus) / (2 * h), a, atol=1e-6)
+        assert np.all(np.abs(p - [0.0, 0.0, 1.5]) <= [0.8, 0.8, 0.3])
+
+
+def test_sum_of_sines_same_seed_same_trajectory():
+    np.testing.assert_allclose(SumOfSines(seed=7)(3.0)[0], SumOfSines(seed=7)(3.0)[0])
+    assert not np.allclose(SumOfSines(seed=7)(3.0)[0], SumOfSines(seed=8)(3.0)[0])
+
+
+def test_held_noise_is_held_and_reproducible():
+    noise = HeldNoise(std_rate=0.5, std_thrust=0.04, hold_steps=10, seed=0)
+    e = np.array([noise(k) for k in range(30)])
+    assert np.all(e[0:10] == e[0]) and np.all(e[10:20] == e[10])
+    assert not np.allclose(e[0], e[10])
+    again = HeldNoise(std_rate=0.5, std_thrust=0.04, hold_steps=10, seed=0)
+    np.testing.assert_array_equal(again(0), e[0])

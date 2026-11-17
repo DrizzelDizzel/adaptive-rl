@@ -85,14 +85,31 @@ class Plant:
         # default, otherwise reset() would undo both changes above.
         self._sim.build_default_data()
 
-    @property
-    def mass(self) -> float:
-        """True mass [kg]. Use it for the nominal model / controller, not as a hidden oracle."""
-        return float(np.asarray(self._sim.data.params.mass).ravel()[0])
+        # Mass as known from the spec sheet. Fixed here on purpose: after set_disturbance()
+        # the true mass differs, and handing that out would be an oracle for controller/model.
+        self.nominal_mass = float(np.asarray(data.params.mass).ravel()[0])
 
     def reset(self) -> np.ndarray:
+        """Back to the initial state. Also removes any disturbance."""
         self._sim.reset()
         return self._read_state()
+
+    def set_disturbance(
+        self,
+        mass: float | None = None,
+        force: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    ) -> None:
+        """Change the true dynamics; stays active until the next call or reset().
+
+        Args:
+            mass: True mass [kg], e.g. with payload. None = nominal mass. Inertia is not scaled.
+            force: Constant external force on the CoM, world frame [N], e.g. wind.
+        """
+        data = self._sim.data
+        true_mass = self.nominal_mass if mass is None else mass
+        params = data.params.replace(mass=jnp.full_like(data.params.mass, true_mass))
+        f = data.states.force.at[0, 0].set(jnp.asarray(force))
+        self._sim.data = data.replace(params=params, states=data.states.replace(force=f))
 
     def step(self, u: np.ndarray) -> np.ndarray:
         u = np.asarray(u, dtype=np.float32)

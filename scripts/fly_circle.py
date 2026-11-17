@@ -26,7 +26,7 @@ def main() -> None:
 
     ref_traj = Circle(center=(0.0, 0.0, 1.0), radius=0.5, period=4.0)
     plant = Plant(control_freq=100, p0=ref_traj.start_position())
-    controller = CascadedController(mass=plant.mass)
+    controller = CascadedController(mass=plant.nominal_mass)
 
     n_steps = int(args.duration * plant.control_freq)
     X = np.zeros((n_steps, 18))
@@ -56,7 +56,7 @@ def main() -> None:
     err = np.linalg.norm(X_next[:, 0:3] - P_ref, axis=1)
     settled = T > 2.0  # ignore the start-up transient
     print(f"tracking error after 2 s: mean {err[settled].mean() * 100:.1f} cm, max {err[settled].max() * 100:.1f} cm")
-    print(f"thrust: min {U[:, 3].min():.3f} N, max {U[:, 3].max():.3f} N (hover = {plant.mass * 9.81:.3f} N)")
+    print(f"thrust: min {U[:, 3].min():.3f} N, max {U[:, 3].max():.3f} N (hover = {plant.nominal_mass * 9.81:.3f} N)")
 
     out = Path("results/fly_circle.npz")
     out.parent.mkdir(exist_ok=True)

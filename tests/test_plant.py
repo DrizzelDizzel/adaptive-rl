@@ -38,7 +38,7 @@ def test_reset_restores_state_after_flying(plant):
 def test_rotation_stays_orthonormal(plant):
     plant.reset()
     for _ in range(50):
-        x = plant.step(np.array([0.5, -0.3, 1.0, plant.mass * GRAVITY]))
+        x = plant.step(np.array([0.5, -0.3, 1.0, plant.nominal_mass * GRAVITY]))
     _, R, _, _ = unpack_state(x)
     np.testing.assert_allclose(R.T @ R, np.eye(3), atol=1e-5)
     assert np.linalg.det(R) == pytest.approx(1.0, abs=1e-5)
@@ -49,7 +49,7 @@ def test_yaw_rate_command_turns_about_body_z(plant):
     # below 1 rad; roll and pitch stay level.
     plant.reset()
     for _ in range(100):
-        x = plant.step(np.array([0.0, 0.0, 1.0, plant.mass * GRAVITY]))
+        x = plant.step(np.array([0.0, 0.0, 1.0, plant.nominal_mass * GRAVITY]))
     _, R, _, omega = unpack_state(x)
     yaw = np.arctan2(R[1, 0], R[0, 0])
     assert 0.85 < yaw < 1.0
@@ -59,7 +59,7 @@ def test_yaw_rate_command_turns_about_body_z(plant):
 
 def test_controller_hovers(plant):
     ref = Circle(center=P0, radius=0.0)
-    controller = CascadedController(plant.mass)
+    controller = CascadedController(plant.nominal_mass)
     x = plant.reset()
     for k in range(300):
         x = plant.step(controller(x, ref(k * plant.dt)))
@@ -69,7 +69,7 @@ def test_controller_hovers(plant):
 def test_controller_tracks_circle(plant):
     # The plant starts at P0, the circle's start point is center + (r, 0, 0).
     ref = Circle(center=(P0[0] - 0.5, P0[1], P0[2]), radius=0.5, period=4.0)
-    controller = CascadedController(plant.mass)
+    controller = CascadedController(plant.nominal_mass)
     x = plant.reset()
     errors = []
     for k in range(600):
@@ -77,3 +77,43 @@ def test_controller_tracks_circle(plant):
         x = plant.step(controller(x, r))
         errors.append(np.linalg.norm(x[0:3] - ref((k + 1) * plant.dt)[0]))
     assert max(errors[200:]) < 0.03  # after the 2 s start-up transient
+
+
+def disturbance_effect(plant, **disturbance) -> np.ndarray:
+    """Velocity change over 0.1 s caused by a disturbance, relative to an identical
+    undisturbed run. Differencing cancels drag and the rotor spin-up after reset()."""
+    hover = np.array([0.0, 0.0, 0.0, plant.nominal_mass * GRAVITY])
+    v_end = []
+    for dist in ({}, disturbance):
+        plant.reset()
+        for _ in range(100):
+            plant.step(hover)
+        plant.set_disturbance(**dist)
+        for _ in range(10):
+            x = plant.step(hover)
+        v_end.append(x[12:15])
+    return (v_end[1] - v_end[0]) / (10 * plant.dt)
+
+
+def test_constant_force_accelerates_along_world_axis(plant):
+    a = disturbance_effect(plant, force=(0.05, 0.0, 0.0))
+    np.testing.assert_allclose(a, [0.05 / plant.nominal_mass, 0.0, 0.0], rtol=0.05, atol=1e-3)
+
+
+def test_heavier_drone_sinks_and_nominal_mass_unchanged(plant):
+    m = plant.nominal_mass
+    a = disturbance_effect(plant, mass=1.3 * m)
+    # m_true * a = m * g - m_true * g  ->  a = g (1/1.3 - 1)
+    np.testing.assert_allclose(a, [0.0, 0.0, GRAVITY * (1 / 1.3 - 1)], rtol=0.05, atol=1e-3)
+    assert plant.nominal_mass == m
+
+
+def test_reset_removes_disturbance(plant):
+    x0 = plant.reset()
+    plant.set_disturbance(mass=2 * plant.nominal_mass, force=(0.1, 0.0, 0.0))
+    plant.step(np.zeros(4))
+    np.testing.assert_allclose(plant.reset(), x0)
+    hover = np.array([0.0, 0.0, 0.0, plant.nominal_mass * GRAVITY])
+    for _ in range(100):
+        x = plant.step(hover)
+    assert abs(x[12]) < 1e-6  # no residual force along x
