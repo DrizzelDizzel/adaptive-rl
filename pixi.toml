@@ -6,8 +6,10 @@ platforms = ['osx-arm64']
 version = "0.1.0"
 
 [tasks]
+#Run these via "pixi run xxx"
 smoke = "python scripts/crazyflow_smoke.py"
 smoke-render = "python scripts/crazyflow_smoke.py --render"
+test = "pytest tests"
 
 # Only Python comes from conda; everything else from PyPI, so no package exists twice.
 [dependencies]
@@ -21,3 +23,5 @@ crazyflow = ">=0.4.0, <0.5"
 mujoco = ">=4.0.0, <5"
 mujoco-mjx = ">=4.0.0, <5"
 adaptive-rl = { path = ".", editable = true }
+matplotlib = ">=3.11.2, <4"
+pytest = ">=8, <10"

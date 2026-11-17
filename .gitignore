@@ -1,9 +1,12 @@
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+.vscode/*
 __pycache__/
 *.pyc
 results/
+exercises/
 runs/
 wandb/
 .DS_Store
