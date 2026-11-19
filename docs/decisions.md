@@ -34,6 +34,26 @@ Position-PD + Vorsteuerung → Soll-Lage auf SO(3) → Raten. Zustandslos, damit
 `u = controller(x, ref)` dieselbe Signatur wie eine Policy hat.
 Preis: bleibender Fehler bei konstanten Störungen (Kreis: ~1,6 cm).
 
+### 6. ω im nominalen Modell: ω = ω_cmd, Schub sofort (2026-11-19)
+Wie das LotF-Surrogat (`simplified_dyn`): R⁺ = R·exp(ω_cmd·dt), a = T/m·b₃ + g, keine
+Ratendynamik, keine Totzeit. `f(x, u)` bleibt gedächtnislos; ω in x wird nicht genutzt,
+ω⁺ := ω_cmd. Gründe: Vergleichbarkeit mit LotF; das Modell hat eine bekannte, benennbare
+Abweichung (fehlende Ratendynamik), die den First-Order-Gradienten verzerrt und den
+FO/ZO-Vergleich sichtbar macht; klassisches flaches Quadrotormodell.
+Gemessen (nominal/test_circle, Open-Loop mit echten u, Fit auf nominal/train):
+| ω-Modell | Lage k=10/30 | Position k=10/30 |
+|---|---|---|
+| ω = ω_cmd | 1,88°/1,99° | 0,34/2,20 cm |
+| 1. Ordnung (τ ≈ 25/26/64 ms) | 0,80°/0,83° | 0,34/2,19 cm |
+| 2. Ordnung (roll/pitch: f_n ≈ 9 Hz, ζ ≈ 0,35) | 0,14°/0,30° | 0,34/2,20 cm |
+Das ω-Modell ändert die Positionsvorhersage bis k = 30 nicht (heavy: 13,7 cm bei allen);
+der Positionsfehler kommt von Masse, Schubverzögerung, Widerstand → Aufgabe des Residuums.
+Roll/Pitch sind unterdämpft 2. Ordnung (Ratenregler-D-Anteil + Rotoren); eine 1. Ordnung
+erklärt nur 60 % der Varianz von Δω. Die früheren τ ≈ 30/31/69 ms sind dadurch messmethodenabhängig.
+Verworfen: 1. Ordnung (halbiert nur den Lagefehler); 2. Ordnung mit Historie (ω, u des
+Vorschritts im Modellzustand), bleibt mögliche Ablation für die Gradientenqualität;
+Totzeit-Puffer (LotF braucht ihn für Hardware-Latenz, unsere Plant hat keine Latenz).
+
 ### 7. Anregung und Datensätze für das Dynamikmodell (2026-11-17)
 - Training: variierte Referenz (Summe von Sinus, fester Seed) für Breite der Zustände.
 - Zusätzlich gehaltenes Rauschen auf u (neuer Wert alle 10 Schritte, 0,5 rad/s,
@@ -57,7 +77,8 @@ Störung ab Start aktiv. Umschalten mitten im Lauf erst im Closed-Loop-Teil.
 
 ### 10. Gemeinsamer Vertrag in `state.py` und `constants.py` (2026-11-19)
 Layout von x und u (`STATE_DIM`, `CMD_DIM`, `unpack_state`, Frames, Einheiten) in
-`state.py`, `GRAVITY` in `constants.py`; beide nur numpy. Vorher lagen sie in `plant.py`
+`state.py`, `GRAVITY` in `constants.py`; beide laden nicht den Simulator (`state.py` nutzt
+JAX für `pack_state`, das auch unter `jit` funktionieren muss). Vorher lagen sie in `plant.py`
 bzw. `controllers.py`: der Regler lud über `unpack_state` den Simulator mit, und
 `nominal.py` hätte von Plant und Baseline-Regler abhängen müssen. Ändert #3 nicht
 inhaltlich, nur den Ort der Definition. g = 9,81 wie in Crazyflow.
@@ -66,15 +87,14 @@ die still auseinanderlaufen können).
 
 ## ToDo
 
-### 6. ω im nominalen Modell
-Optionen: ω = ω_cmd (LotF, mit Totzeit-Puffer) · Verzögerung 1. Ordnung · zusätzlich
-Schubverzögerung. Gemessen: τ ≈ 30/31/69 ms (roll/pitch/yaw), Schub ≈ 42 ms.
-1. Ordnung halbiert den Lagefehler (k = 10: 1,55° → 0,74°), Positionsfehler fast gleich.
-Relevant v. a. für Looping und Gradientenvergleich. Muss vor `nominal.py` entschieden sein.
-
 ### 9. Messrauschen / Zustandsschätzung
 Die Plant liefert den exakten Zustand; eine echte Drohne liefert eine Schätzung
 (IMU, Motion Capture) mit Rauschen und Verzögerung. Für „Plant 1:1 austauschbar“ sollte
 `step()` einen verrauschten Zustand liefern und den wahren nur separat zur Auswertung.
 Offen: wann einführen, Rauschmodell (Rauschen auf R muss auf SO(3) bleiben),
 errors-in-variables beim Lernen. Vor dem Closed-Loop-Teil entscheiden.
+
+### 11. Wodurch fließt der Policy-Gradient?
+LotF (`Quadrotor.step`, `custom_jvp`): Vorwärtsschritt mit Residuum, Gradient nur durch
+das analytische Modell (Residuum ohne Ableitung). Alternative: Gradient durch das ganze
+Hybridmodell. Zentral für den FO/ZO-Vergleich. Vor dem Policy-Teil entscheiden.
