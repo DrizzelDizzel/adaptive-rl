@@ -55,6 +55,15 @@ Regler und Modell. Massenänderung skaliert J nicht mit (vereinfachend).
 Offline-Datensätze: je Bedingung (nominal, Masse +30 %, Kraft) eigene Train/Test-Läufe,
 Störung ab Start aktiv. Umschalten mitten im Lauf erst im Closed-Loop-Teil.
 
+### 10. Gemeinsamer Vertrag in `state.py` und `constants.py` (2026-11-19)
+Layout von x und u (`STATE_DIM`, `CMD_DIM`, `unpack_state`, Frames, Einheiten) in
+`state.py`, `GRAVITY` in `constants.py`; beide nur numpy. Vorher lagen sie in `plant.py`
+bzw. `controllers.py`: der Regler lud über `unpack_state` den Simulator mit, und
+`nominal.py` hätte von Plant und Baseline-Regler abhängen müssen. Ändert #3 nicht
+inhaltlich, nur den Ort der Definition. g = 9,81 wie in Crazyflow.
+Verworfen: alles in `plant.py` lassen; Layout in `nominal.py` duplizieren (zwei Quellen,
+die still auseinanderlaufen können).
+
 ## ToDo
 
 ### 6. ω im nominalen Modell

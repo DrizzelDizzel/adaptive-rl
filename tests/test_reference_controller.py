@@ -2,7 +2,8 @@
 
 import numpy as np
 
-from adaptive_rl.controllers import GRAVITY, CascadedController, vee
+from adaptive_rl.constants import GRAVITY
+from adaptive_rl.controllers import CascadedController, vee
 from adaptive_rl.excitation import HeldNoise
 from adaptive_rl.reference import Circle, SumOfSines
 

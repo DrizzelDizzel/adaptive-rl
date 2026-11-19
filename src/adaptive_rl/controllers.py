@@ -2,16 +2,16 @@
 
     u = controller(x, ref)
 
-x:   flat state from plant.py (p, R, v, omega)
+x:   flat state (p, R, v, omega), layout in state.py
 ref: (p_ref, v_ref, a_ref) in the world frame, from reference.py
 u:   [omega_x, omega_y, omega_z, thrust] (body rates [rad/s], collective thrust [N])
 """
 
 import numpy as np
 
-from adaptive_rl.plant import unpack_state
+from adaptive_rl.constants import GRAVITY
+from adaptive_rl.state import unpack_state
 
-GRAVITY = 9.81
 E3 = np.array([0.0, 0.0, 1.0])
 
 

@@ -15,7 +15,8 @@ from adaptive_rl.plant import Plant  # isort: skip  (imports crazyflow before sc
 
 import numpy as np
 
-from adaptive_rl.controllers import GRAVITY, CascadedController
+from adaptive_rl.constants import GRAVITY
+from adaptive_rl.controllers import CascadedController
 from adaptive_rl.data import save_run
 from adaptive_rl.excitation import HeldNoise
 from adaptive_rl.reference import Circle, SumOfSines

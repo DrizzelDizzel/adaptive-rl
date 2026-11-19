@@ -3,9 +3,11 @@
 import numpy as np
 import pytest
 
-from adaptive_rl.controllers import GRAVITY, CascadedController
-from adaptive_rl.plant import STATE_DIM, Plant, unpack_state
+from adaptive_rl.constants import GRAVITY
+from adaptive_rl.controllers import CascadedController
+from adaptive_rl.plant import Plant
 from adaptive_rl.reference import Circle
+from adaptive_rl.state import STATE_DIM, unpack_state
 
 P0 = (0.0, 0.0, 2.0)
 
