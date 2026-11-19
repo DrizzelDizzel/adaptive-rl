@@ -85,6 +85,21 @@ inhaltlich, nur den Ort der Definition. g = 9,81 wie in Crazyflow.
 Verworfen: alles in `plant.py` lassen; Layout in `nominal.py` duplizieren (zwei Quellen,
 die still auseinanderlaufen können).
 
+### 12. Residuum: Eingänge, Ziel, Netz (2026-11-19)
+`dynamics/residual.py`, `dynamics/hybrid.py`. Wie LotF: MLP 2 × 128, ReLU, Ausgang
+Restbeschleunigung (3) im Weltframe, eingespeist über `a_res` in `nominal.step`;
+One-Step-MSE + Spektralnorm-Regularisierung (λ = 1e-3). Rotation wird nicht korrigiert.
+Ziel: `a_res = (v⁺_gemessen − v⁺_nominal) / dt`, berechnet über `nominal.step`.
+Abweichungen von LotF:
+- Eingänge R, v, ω_cmd, T/(m·g) (16), **ohne p**: Störungen bisher ortsunabhängig; mit p
+  lernt das Netz den Ort der Trainingstrajektorie mit und extrapoliert online beliebig.
+  p kommt dazu, sobald eine ortsabhängige Störung untersucht wird (#13). Ohne gemessenes ω.
+- Feste physikalische Skalen statt Daten-Normierung (LotF: keine): bleibt online gültig.
+- Ein Netz statt Ensemble aus 3 (LotF nutzt nur den Mittelwert).
+- Letzte Schicht mit 0 initialisiert: untrainiert gilt hybrid = nominal.
+Offline je Bedingung ein Netz (Störung ist kein Eingang). Aktivierung ist Argument, weil
+#11 einen glatten Gradienten durch das Netz verlangen könnte.
+
 ## ToDo
 
 ### 9. Messrauschen / Zustandsschätzung
@@ -98,3 +113,9 @@ errors-in-variables beim Lernen. Vor dem Closed-Loop-Teil entscheiden.
 LotF (`Quadrotor.step`, `custom_jvp`): Vorwärtsschritt mit Residuum, Gradient nur durch
 das analytische Modell (Residuum ohne Ableitung). Alternative: Gradient durch das ganze
 Hybridmodell. Zentral für den FO/ZO-Vergleich. Vor dem Policy-Teil entscheiden.
+
+### 13. Ortsabhängige Störung
+Z. B. Windzone auf einem Teil der Kreisbahn. Zeigt den Unterschied „Störung verfolgen“
+(Residuum ohne p, online nachtrainiert) gegen „Karte lernen“ (mit p, sagt die Zone voraus).
+Braucht: Plant-Erweiterung (Kraft als Funktion von p), neue Datensätze, Residuum mit/ohne p.
+Vor dem Closed-Loop-Teil entscheiden.

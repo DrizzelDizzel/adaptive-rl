@@ -1,0 +1,85 @@
+"""Tests for residual.py and hybrid.py: what breaks silently (target sign/scale, start-up
+equivalence to the nominal model, rollout indexing). Prediction quality is eval_model.py's job."""
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+from flax import nnx
+from scipy.spatial.transform import Rotation
+
+from adaptive_rl.constants import GRAVITY
+from adaptive_rl.dynamics import hybrid, nominal
+from adaptive_rl.dynamics.residual import N_FEATURES, ResidualMLP, features, target
+from adaptive_rl.state import pack_state, unpack_state
+
+MASS = 0.03
+DT = 0.01
+
+
+def random_state(seed):
+    rng = np.random.default_rng(seed)
+    R = Rotation.random(random_state=seed).as_matrix()
+    return pack_state(rng.normal(size=3), R, rng.normal(size=3), rng.normal(size=3))
+
+
+def random_command(seed):
+    rng = np.random.default_rng(seed)
+    return jnp.concatenate([jnp.asarray(rng.normal(size=3)), jnp.array([MASS * GRAVITY * 1.1])])
+
+
+def test_features_layout_and_thrust_scale():
+    x = random_state(0)
+    u = jnp.array([0.1, 0.2, 0.3, MASS * GRAVITY])
+    f = features(x, u, MASS)
+    _, R, v, _ = unpack_state(x)
+    assert f.shape == (N_FEATURES,)
+    np.testing.assert_allclose(f[0:9], R.ravel(), atol=1e-6)
+    np.testing.assert_allclose(f[9:12], v, atol=1e-6)
+    np.testing.assert_allclose(f[12:15], u[0:3], atol=1e-6)
+    np.testing.assert_allclose(f[15], 1.0, atol=1e-6)  # hover thrust -> 1
+
+
+def test_target_reproduces_measured_velocity():
+    """Feeding the target back into nominal.step must give the measured v_next exactly.
+    Catches sign and dt-scaling errors of the target."""
+    x, u = random_state(1), random_command(1)
+    x_next_measured = random_state(2)
+    a_res = target(x, u, x_next_measured, MASS, DT)
+    v_pred = unpack_state(nominal.step(x, u, MASS, DT, a_res=a_res))[2]
+    np.testing.assert_allclose(v_pred, unpack_state(x_next_measured)[2], atol=1e-4)
+
+
+def test_untrained_hybrid_equals_nominal():
+    """Zero-initialised output layer -> a_res = 0 -> hybrid == nominal, bit for bit."""
+    model = ResidualMLP(rngs=nnx.Rngs(0))
+    x, u = random_state(3), random_command(3)
+    np.testing.assert_array_equal(hybrid.step(model, x, u, MASS, DT), nominal.step(x, u, MASS, DT))
+
+
+def test_rollout_indexing_matches_python_loop():
+    """xs[j] must be the state after j + 1 steps (off-by-one here would shift every k)."""
+    x0 = random_state(4)
+    us = jnp.stack([random_command(10 + j) for j in range(5)])
+    step_fn = lambda x, u: nominal.step(x, u, MASS, DT)  # noqa: E731
+
+    xs = hybrid.rollout(step_fn, x0, us)
+    x = x0
+    for j in range(5):
+        x = step_fn(x, us[j])
+        np.testing.assert_allclose(xs[j], x, atol=1e-6)
+
+
+def test_one_gradient_step_moves_prediction_towards_target():
+    """Zero init must not block learning: one SGD step on a single sample reduces the error."""
+    model = ResidualMLP(rngs=nnx.Rngs(0))
+    f = features(random_state(5), random_command(5), MASS)
+    y = jnp.array([0.5, -1.0, 2.0])
+
+    def loss(m):
+        return jnp.mean((m(f) - y) ** 2)
+
+    before = loss(model)
+    grads = nnx.grad(loss)(model)
+    params = nnx.state(model, nnx.Param)
+    nnx.update(model, jax.tree.map(lambda p, g: p - 0.01 * g, params, grads))
+    assert loss(model) < before
