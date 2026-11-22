@@ -118,6 +118,21 @@ Abweichungen von LotF:
   hängen vom Nominalmodell ab und würden sonst still veralten.
 Verworfen: Minibatch (nicht deterministisch, Vorteil klein gegen die Wahl der Schrittzahl).
 
+### 16. Auswertung des Dynamikmodells (2026-11-22)
+`hybrid.rollout_errors`, `scripts/eval_model.py`. Open-Loop-Rollout mit den aufgezeichneten
+u ab jedem gemessenen Zustand der Testläufe (Fenster überlappend, k = 1…50), Fehler
+‖p̂ − p‖, ‖v̂ − v‖, Lagewinkel; Mittelwert und p90 über die Startpunkte (Metrik wie #6).
+Kein Bestanden-Kriterium, berichtet wird das Verhältnis hybrid/nominal. Lage nur als
+Kontrolle: das Residuum korrigiert sie nicht (#12), beide Modelle müssen gleich sein.
+LotF hat keine Mehrschritt-Auswertung des Residuums.
+Ergebnis Position k = 30 (test_circle / test_hover), nominal → hybrid:
+heavy 13,7 → 1,1 / 13,5 → 1,0 cm; wind 5,4 → 1,3 / 5,4 → 1,2 cm;
+nominal 2,2 → 1,2 / 1,24 → 1,27 cm (Hover: kein Gewinn, ab k ≈ 25 leicht schlechter).
+Kreuztest (Residuum einer anderen Bedingung, test_circle, k = 30): schlechter als nominal,
+z. B. heavy-Residuum auf nominal-Daten 2,2 → 7,0 cm. Ein offline gelerntes Residuum
+schadet, sobald sich die Situation ändert → Motivation für Online-Anpassung.
+Verworfen: Fenster ohne Überlappung (~58 bei k = 30, verrauscht); feste Schwelle in cm.
+
 ## ToDo
 
 ### 9. Messrauschen / Zustandsschätzung
