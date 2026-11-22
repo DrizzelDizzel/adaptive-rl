@@ -153,6 +153,34 @@ drehzahlen) und `Plant.true_step(state, u) → (state⁺, x⁺)`, rein und diffe
 plant.py kennt Crazyflow (#3); die Regelschleife benutzt beides nie. Die `.npz`-Läufe
 reichen dafür nicht: die wahre Jacobi hängt vom versteckten Zustand ab.
 
+### 20. Policy und First-Order-Anpassung im Closed Loop (2026-11-22)
+`policy.py`, `pipelines/first_order/gradient.py`, `scripts/run_adaptive.py`.
+- P1 Residual-Policy: u = Baseline(x, ref) + π_θ, letzte Schicht mit 0 initialisiert →
+  untrainiert exakt die Baseline, stabil ab t = 0 (ohne Resets Pflicht). LotF: u_hover + π,
+  offline vortrainiert.
+- P2 Eingänge: e_p/0,1 m, e_v/0,5 m/s, R, a_ref/g (18); keine absolute Position, kein ω.
+  LotF: p, R, v, letzte Aktionen, keine Referenz (Policy bahngebunden).
+- P3 2 × 32, tanh (~1,8k Parameter; LotF 2 × 512 ReLU): ZO-Rauschen wächst mit der
+  Parameterzahl, BPTT braucht glatte Ableitungen. Ausgang Raten in rad/s, Schub in m_nom·g.
+- P4 Kosten wie LotF (smooth_L1 auf e_p, e_v), Aktionsterm auf die Korrektur π statt
+  u − u_hover (Baseline-Kommando auf dem Kreis ist weit vom Schweben). Gewicht: siehe unten.
+- P5 T2-Fenster H = 30 über die letzten gemessenen Zustände; Straight-Through
+  x̃⁺ = x⁺_mess + f − stop_gradient(f): Wert gemessen, Ableitung vom Nominalmodell (J1),
+  inkl. Rückführung über die Baseline. Ein SGD-Schritt pro Regeltakt (kein Adam: würde
+  FO-Verzerrung gegen ZO-Rauschen verdecken), Clipping auf Gradientennorm 1. Lernen ab 2 s (#4).
+- P6 Baseline-Regler in JAX (`cascaded_control`), gleiche Werte wie numpy (rel. 6e-7),
+  `fly_circle.py` unverändert 1,6 cm (#5).
+- P7 Erstes Experiment: Kreis, Masse ×1,3 ab t = 10 s, gegen reine Baseline. #9, #13
+  bewusst verschoben, bis FO und ZO laufen.
+Gemessen (mittlerer Positionsfehler [cm], 5–10 / 10–12 / 15–20 s): Baseline 2,2 / 32 / 50
+(ohne Integrator: Höhenfehler ≈ 0,23·g/k_p). FO mit Aktionsgewicht 0,1: Schubkorrektur
+bleibt bei ~0,22 m·g statt 0,30 stehen, Rest ~12 cm, unabhängig von lr (1e-3 … 3e-2).
+Mit Gewicht 0,01 oder 0: Korrektur 0,30, Fehler 15–20 s 1,3 cm (lr = 1e-2), besser als die
+Baseline vor dem Wechsel. Grund: LotFs 0,1 gilt in N und rad/s; unser Schub ist in m·g
+normiert, dieselbe Zahl wirkt dadurch ~6× stärker.
+lr = 1e-2 erzeugt vor dem Wechsel eine anwachsende Schwingung der Schubkorrektur
+(Periode ~1 s, Std 0,02–0,04 m·g); lr = 3e-3 kaum (0,002), passt sich aber langsamer an.
+
 ## ToDo
 
 ### 9. Messrauschen / Zustandsschätzung
