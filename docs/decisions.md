@@ -100,6 +100,24 @@ Abweichungen von LotF:
 Offline je Bedingung ein Netz (Störung ist kein Eingang). Aktivierung ist Argument, weil
 #11 einen glatten Gradienten durch das Netz verlangen könnte.
 
+### 14. Offline-Training des Residuums (2026-11-22)
+`dynamics/fit.py` (Loss, `train_step`, `fit`, Speichern), `scripts/train_model.py`.
+Wie LotF: Full-Batch (ein Schritt = eine Epoche; LotFs `batch_size = 256` wird nie benutzt),
+Adam lr = 1e-2, Loss = MSE + 1e-3 · Σ‖W‖₂ über alle Schichten.
+Abweichungen von LotF:
+- Validierung: letzte 20 % des Train-Laufs als zusammenhängender Block (Zeilen-Zufallssplit
+  testet auf Nachbarn im 10-ms-Abstand). LotF validiert nicht.
+- Early Stopping durch Auswahl: bis 500 Schritte, Val alle 10, beste Gewichte behalten.
+  Statt fest 100 (LotF): das Optimum hängt von der Bedingung ab (bester Schritt 40/130/60
+  für nominal/heavy/wind, Seed 0); danach steigt Val wieder (Überanpassung).
+  Val-MSE [(m/s²)²] a_res=0 → bestes: nominal 0,23 → 0,10; heavy 3,25 → 0,07; wind 0,69 → 0,10.
+  Rest ~0,1 bei allen gleich, vermutlich Schubverzögerung (Rotordrehzahl, versteckter Zustand).
+- Speichern als `.npz` (Gewichte flach, `meta` als JSON, Lernkurve) statt orbax: ein Format
+  im Projekt, kein weiterer Import; orbax ist für große, verteilte Checkpoints gebaut.
+- Targets werden bei jedem Training aus (X, U, X⁺) neu berechnet, nicht gespeichert: sie
+  hängen vom Nominalmodell ab und würden sonst still veralten.
+Verworfen: Minibatch (nicht deterministisch, Vorteil klein gegen die Wahl der Schrittzahl).
+
 ## ToDo
 
 ### 9. Messrauschen / Zustandsschätzung
@@ -119,3 +137,9 @@ Z. B. Windzone auf einem Teil der Kreisbahn. Zeigt den Unterschied „Störung v
 (Residuum ohne p, online nachtrainiert) gegen „Karte lernen“ (mit p, sagt die Zone voraus).
 Braucht: Plant-Erweiterung (Kraft als Funktion von p), neue Datensätze, Residuum mit/ohne p.
 Vor dem Closed-Loop-Teil entscheiden.
+
+### 15. Trainingsschleife in `lax.scan`
+`fit` ist eine Python-Schleife um den `nnx.jit`-Schritt (lesbar, Early Stopping und Logging
+in normalem Python; ~10 s pro Bedingung). Schneller: ganze Schleife in `jax.lax.scan` wie
+LotF, dann Auswertung und beste Gewichte im kompilierten Code. Relevant, sobald das
+Training oft läuft (Sweeps, Online-Nachtraining).

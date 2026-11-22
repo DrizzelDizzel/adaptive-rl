@@ -26,3 +26,4 @@ adaptive-rl = { path = ".", editable = true }
 matplotlib = ">=3.11.2, <4"
 pytest = ">=8, <10"
 flax = ">=0.12.8, <0.13"
+optax = ">=0.2.8, <0.3"
