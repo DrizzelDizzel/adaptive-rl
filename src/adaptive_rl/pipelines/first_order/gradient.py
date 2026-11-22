@@ -32,8 +32,10 @@ from adaptive_rl.policy import PolicyMLP, act, inputs
 from adaptive_rl.state import unpack_state
 
 # Stage cost weights as LotF (traj_tracking_state_env._get_reward), action term on the
-# correction instead of u - u_hover (#20, P4).
-W_POS, W_VEL, W_CORRECTION = 1.0, 1.0, 0.1
+# correction instead of u - u_hover (#20, P4). W_CORRECTION = 0.01, not LotF's 0.1: LotF
+# penalises thrust in N, ours is in units of m g, so the same number would be ~6x stronger;
+# measured: 0.1 stops the thrust correction at 0.22 m g although 0.30 is needed (#20).
+W_POS, W_VEL, W_CORRECTION = 1.0, 1.0, 0.01
 
 
 def smooth_l1(e: jax.Array) -> jax.Array:

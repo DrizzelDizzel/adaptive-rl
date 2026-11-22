@@ -180,6 +180,8 @@ Baseline vor dem Wechsel. Grund: LotFs 0,1 gilt in N und rad/s; unser Schub ist 
 normiert, dieselbe Zahl wirkt dadurch ~6× stärker.
 lr = 1e-2 erzeugt vor dem Wechsel eine anwachsende Schwingung der Schubkorrektur
 (Periode ~1 s, Std 0,02–0,04 m·g); lr = 3e-3 kaum (0,002), passt sich aber langsamer an.
+Gewählt: Aktionsgewicht 0,01 (LotFs 0,1 in unseren Einheiten), lr = 1e-2 (Anpassung
+schnell genug, um sie zu sehen); Schwingung → #21.
 
 ## ToDo
 
@@ -220,3 +222,10 @@ Fehler getrennt für Position und Lage. Offen: ob das Nachwirken der Ratendynami
 Einschrittfehler (Faktor 3–15) über H ausgleicht. J2 erst mit ReLU, bei rauen Ableitungen
 glatte Aktivierung (softplus/tanh, Neutraining). Später ebenso für den Policy-Gradienten
 selbst (FO und ZO gegen wahr). Spätestens mit dem ersten FO-Ergebnis einbauen.
+
+
+### 21. Schwingung der Online-Anpassung bei lr = 1e-2
+Vor dem Massenwechsel wächst die Schubkorrektur zu einer Schwingung (~1 s Periode) an.
+Klassischer Zielkonflikt Adaptionsverstärkung gegen Stabilität. Erst prüfen: 60 s nominal,
+bleibt sie begrenzt oder divergiert sie? Mögliche Ursachen (ungeprüft): Schrittweite,
+verzerrtes nominales B (#11), veraltete Daten im Fenster.
