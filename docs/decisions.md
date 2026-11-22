@@ -133,6 +133,22 @@ z. B. heavy-Residuum auf nominal-Daten 2,2 → 7,0 cm. Ein offline gelerntes Res
 schadet, sobald sich die Situation ändert → Motivation für Online-Anpassung.
 Verworfen: Fenster ohne Überlappung (~58 bei k = 30, verrauscht); feste Schwelle in cm.
 
+### 11. Wodurch fließt der Policy-Gradient? (2026-11-22)
+Zwei Achsen: welche Jacobi-Matrizen A = ∂f/∂x, B = ∂f/∂u BPTT benutzt (J), und entlang
+welcher Trajektorie sie ausgewertet werden (T).
+- J: Schalter `hybrid.step(..., grad_through_residual)`. Standard False wie LotF
+  (`Quadrotor.step`, `custom_jvp`: vorwärts genaues Modell, rückwärts `simplified_dyn`):
+  a_res per `stop_gradient` konstant → Jacobi = nominal, exakt, weil a_res additiv eingeht.
+  True: Kette auch durch das Netz; Ablation. Entschieden wird per Messung gegen die wahre
+  Crazyflow-Jacobi (`jax.jacfwd` durch Crazyflows reine Step-Funktion, geprüft: endlich,
+  stimmt mit finiten Differenzen).
+- T: zuerst T2, entlang der gemessenen Trajektorie (Kosten aus echten Zuständen, Modell
+  liefert nur A, B). FO und ZO arbeiten dann auf denselben Daten, Unterschied = Schätzer.
+  Folge: mit J1 wirkt das Residuum nicht auf den Gradienten, nur mit J2. T1: #17.
+Erste Messung (ein Schritt, Kreis, nominal): wahres ∂v_z⁺/∂T = 0,015, nominal 0,23;
+wahres ∂ω⁺/∂ω_cmd = 0,32/0,28/0,14 (Diagonale), nominal 1. Grund: Rotor- und
+Ratendynamik (#6); B des Nominalmodells ist über einen Schritt um Faktor 3–15 zu groß.
+
 ## ToDo
 
 ### 9. Messrauschen / Zustandsschätzung
@@ -141,11 +157,6 @@ Die Plant liefert den exakten Zustand; eine echte Drohne liefert eine Schätzung
 `step()` einen verrauschten Zustand liefern und den wahren nur separat zur Auswertung.
 Offen: wann einführen, Rauschmodell (Rauschen auf R muss auf SO(3) bleiben),
 errors-in-variables beim Lernen. Vor dem Closed-Loop-Teil entscheiden.
-
-### 11. Wodurch fließt der Policy-Gradient?
-LotF (`Quadrotor.step`, `custom_jvp`): Vorwärtsschritt mit Residuum, Gradient nur durch
-das analytische Modell (Residuum ohne Ableitung). Alternative: Gradient durch das ganze
-Hybridmodell. Zentral für den FO/ZO-Vergleich. Vor dem Policy-Teil entscheiden.
 
 ### 13. Ortsabhängige Störung
 Z. B. Windzone auf einem Teil der Kreisbahn. Zeigt den Unterschied „Störung verfolgen“
@@ -158,3 +169,14 @@ Vor dem Closed-Loop-Teil entscheiden.
 in normalem Python; ~10 s pro Bedingung). Schneller: ganze Schleife in `jax.lax.scan` wie
 LotF, dann Auswertung und beste Gewichte im kompilierten Code. Relevant, sobald das
 Training oft läuft (Sweeps, Online-Nachtraining).
+
+### 17. T1: Gradient entlang einer vorgestellten Modell-Rollout
+Vom gemessenen Zustand H Schritte mit Policy im Hybridmodell ausrollen und differenzieren.
+Dort zählt das Vorwärtsmodell direkt (LotF-Prinzip); Vorwärtsfehler summieren sich auf
+(#16: ~1 cm bei k = 30). Variante zu T2 (#11), nach dem ersten FO-Ergebnis entscheiden.
+
+### 18. Rendern: Referenz, Baseline, Policy/Modell nebeneinander
+Für Bericht und Verständnis. Aus aufgezeichneten Läufen (Replay), nicht in der Schleife:
+gleiches Format offline und online, Schleife bleibt unberührt; live später nur zweite
+Datenquelle. Werkzeug (Crazyflow/MuJoCo mit mehreren Drohnen, matplotlib 3D) dann
+entscheiden. Zeitpunkt: Anfang des Closed-Loop-Teils.

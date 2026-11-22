@@ -104,3 +104,24 @@ def test_rollout_errors_zero_on_own_data_and_window_count():
 
     shifted = hybrid.rollout_errors(step_fn, X[:-2], U[1:], X[2:], horizon)  # U one step ahead
     assert shifted["p"].max() > 1e-3
+
+
+def test_gradient_switch_selects_nominal_or_hybrid_jacobian():
+    """Default: Jacobians of hybrid.step == those of nominal.step (LotF, #11), although the
+    forward value differs. With grad_through_residual=True they must differ."""
+    model = ResidualMLP(rngs=nnx.Rngs(0))
+    # Non-zero output layer: with the zero init, d a_res / d(x, u) would be 0 anyway.
+    model.out.kernel[...] = jax.random.normal(jax.random.key(1), model.out.kernel[...].shape)
+    x, u = random_state(7), random_command(7)
+
+    def jac(f):
+        return jax.jacfwd(f, argnums=(0, 1))(x, u)
+
+    J_nom = jac(lambda x, u: nominal.step(x, u, MASS, DT))
+    J_lotf = jac(lambda x, u: hybrid.step(model, x, u, MASS, DT))
+    J_full = jac(lambda x, u: hybrid.step(model, x, u, MASS, DT, grad_through_residual=True))
+
+    assert not np.allclose(hybrid.step(model, x, u, MASS, DT), nominal.step(x, u, MASS, DT))
+    for a, b in zip(J_lotf, J_nom):
+        np.testing.assert_allclose(a, b, atol=1e-6)
+    assert not np.allclose(J_full[1], J_nom[1], atol=1e-4)

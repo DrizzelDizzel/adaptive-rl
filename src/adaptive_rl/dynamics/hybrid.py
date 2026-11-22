@@ -15,9 +15,28 @@ from adaptive_rl.dynamics.residual import ResidualMLP, features
 from adaptive_rl.state import unpack_state
 
 
-def step(model: ResidualMLP, x: jax.Array, u: jax.Array, mass: float, dt: float) -> jax.Array:
-    """One control step of the hybrid model. Same arguments as nominal.step plus the network."""
+def step(
+    model: ResidualMLP,
+    x: jax.Array,
+    u: jax.Array,
+    mass: float,
+    dt: float,
+    grad_through_residual: bool = False,
+) -> jax.Array:
+    """One control step of the hybrid model. Same arguments as nominal.step plus the network.
+
+    grad_through_residual (#11): which Jacobians d x_next / d(x, u) a gradient through this
+    step sees. The forward value is the same in both cases.
+      False (default, as LotF): a_res is a constant for differentiation, so the Jacobians are
+        exactly those of nominal.step at the same (x, u) (a_res enters additively).
+        jax.lax.stop_gradient returns its input unchanged and makes jax.grad treat it as a
+        constant; same result as LotF's custom_jvp, without a custom derivative rule.
+      True: the chain rule also runs through the network, d a_res / d(x, u).
+    Training the residual (fit.py) calls the network directly and is not affected.
+    """
     a_res = model(features(x, u, mass))
+    if not grad_through_residual:
+        a_res = jax.lax.stop_gradient(a_res)
     return nominal.step(x, u, mass, dt, a_res=a_res)
 
 
