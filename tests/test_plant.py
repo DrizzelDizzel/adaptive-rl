@@ -1,5 +1,7 @@
 """Tests for the Crazyflow wrapper. Slow-ish (JIT compilation), so one Plant per module."""
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -119,3 +121,25 @@ def test_reset_removes_disturbance(plant):
     for _ in range(100):
         x = plant.step(hover)
     assert abs(x[12]) < 1e-6  # no residual force along x
+
+
+def test_true_step_matches_step_and_is_differentiable(plant):
+    """true_step from a snapshot must reproduce step() (same physics, same x layout incl. the
+    jnp quaternion conversion), leave the plant untouched, and give a finite Jacobian."""
+    x = plant.reset()
+    controller = CascadedController(plant.nominal_mass)
+    reference = Circle(center=P0, radius=0.5, period=4.0)
+    for k in range(50):  # spin the rotors up, so the hidden states are not trivial
+        x = plant.step(controller(x, reference(k * plant.dt)))
+    u = controller(x, reference(50 * plant.dt))
+
+    snap = plant.snapshot()
+    _, x_true_step = plant.true_step(snap, jnp.asarray(u, dtype=jnp.float32))
+    np.testing.assert_allclose(plant.snapshot().states.pos, snap.states.pos)  # plant untouched
+    x_step = plant.step(u)
+    np.testing.assert_allclose(x_true_step, x_step, atol=1e-5)
+
+    J = jax.jacfwd(lambda u: plant.true_step(snap, u)[1])(jnp.asarray(u, dtype=jnp.float32))
+    assert J.shape == (STATE_DIM, 4)
+    assert np.all(np.isfinite(J))
+    assert J[14, 3] > 0  # more thrust -> more upward velocity (v_z = x[14])

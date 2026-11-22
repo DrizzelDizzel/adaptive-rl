@@ -148,6 +148,10 @@ welcher Trajektorie sie ausgewertet werden (T).
 Erste Messung (ein Schritt, Kreis, nominal): wahres ∂v_z⁺/∂T = 0,015, nominal 0,23;
 wahres ∂ω⁺/∂ω_cmd = 0,32/0,28/0,14 (Diagonale), nominal 1. Grund: Rotor- und
 Ratendynamik (#6); B des Nominalmodells ist über einen Schritt um Faktor 3–15 zu groß.
+Wahre Dynamik zur Auswertung: `Plant.snapshot()` (voller Crazyflow-Zustand inkl. Rotor-
+drehzahlen) und `Plant.true_step(state, u) → (state⁺, x⁺)`, rein und differenzierbar. Nur
+plant.py kennt Crazyflow (#3); die Regelschleife benutzt beides nie. Die `.npz`-Läufe
+reichen dafür nicht: die wahre Jacobi hängt vom versteckten Zustand ab.
 
 ## ToDo
 
@@ -180,3 +184,11 @@ Für Bericht und Verständnis. Aus aufgezeichneten Läufen (Replay), nicht in de
 gleiches Format offline und online, Schleife bleibt unberührt; live später nur zweite
 Datenquelle. Werkzeug (Crazyflow/MuJoCo mit mehreren Drohnen, matplotlib 3D) dann
 entscheiden. Zeitpunkt: Anfang des Closed-Loop-Teils.
+
+### 19. Modell-Gradienten gegen den wahren Gradienten messen
+Mit `Plant.snapshot`/`true_step` (#11): Sensitivität ∂x_{k+H}/∂u_k für H = 1, 10, 30,
+nominal (J1) und hybrid (J2) gegen wahr, auf Kreis und Hover, je Bedingung; relativer
+Fehler getrennt für Position und Lage. Offen: ob das Nachwirken der Ratendynamik den
+Einschrittfehler (Faktor 3–15) über H ausgleicht. J2 erst mit ReLU, bei rauen Ableitungen
+glatte Aktivierung (softplus/tanh, Neutraining). Später ebenso für den Policy-Gradienten
+selbst (FO und ZO gegen wahr). Spätestens mit dem ersten FO-Ergebnis einbauen.

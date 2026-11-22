@@ -5,6 +5,9 @@ The rest of the project only talks to this class through two calls:
     x = plant.reset()        # once at the start
     x_next = plant.step(u)   # once per control step
 
+For evaluation only, snapshot() and true_step() expose the true dynamics as a differentiable
+function (the "true" gradient, #11). The control loop never uses them.
+
 Nothing outside this file imports crazyflow. All Crazyflow specifics (batch dimensions
 (n_worlds, n_drones, ...), xyzw quaternions, import order, controller gains) stay here.
 """
@@ -12,7 +15,9 @@ Nothing outside this file imports crazyflow. All Crazyflow specifics (batch dime
 # Crazyflow must be imported before scipy: it sets SCIPY_ARRAY_API=1 on import.
 from crazyflow.control import Control  # isort: skip
 from crazyflow.sim import Sim  # isort: skip
+import crazyflow.sim.functional as F  # isort: skip
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -75,6 +80,10 @@ class Plant:
         # the true mass differs, and handing that out would be an oracle for controller/model.
         self.nominal_mass = float(np.asarray(data.params.mass).ravel()[0])
 
+        # Crazyflow's pure step function (SimData, n_steps) -> SimData, for true_step().
+        # Sim.step() uses the same pipeline internally, so both give the same physics.
+        self._step_fn = self._sim.build_step_fn()
+
     def reset(self) -> np.ndarray:
         """Back to the initial state. Also removes any disturbance."""
         self._sim.reset()
@@ -105,6 +114,35 @@ class Plant:
         self._sim.step(self._n_substeps)
         return self._read_state()
 
+    # --- Evaluation only (#11): the true dynamics as a differentiable function. -----------------
+    # A real drone offers neither of the two methods below. They exist so the "true" gradient can
+    # be compared with the model gradients; nothing in the control loop may use them.
+
+    def snapshot(self):
+        """The simulator's full current state (Crazyflow SimData), to be passed to true_step.
+
+        Contains more than x: rotor speeds and the rate controller's internal state (both hidden,
+        #4, #6), the true mass and the disturbance force. The true Jacobian depends on these, so a
+        recorded x alone is not enough to reproduce it. SimData is an immutable JAX pytree: the
+        snapshot does not change when the plant keeps flying.
+        """
+        return self._sim.data
+
+    def true_step(self, sim_state, u: jax.Array):
+        """Pure version of step(): (sim_state, u) -> (sim_state_next, x_next). Plant unchanged.
+
+        Same physics as step(u) from that state. Differentiable with JAX w.r.t. u and the arrays
+        in sim_state, e.g. jax.jacfwd(lambda u: plant.true_step(s, u)[1])(u) = true d x_next / d u.
+        Chaining calls (feed sim_state_next back in) gives multi-step sensitivities.
+        x_next is built in jnp (not scipy as in _read_state), so the derivative can pass through.
+        """
+        sim_state = F.body_rate_control(sim_state, jnp.reshape(u, (1, 1, CMD_DIM)))
+        sim_state = self._step_fn(sim_state, n_steps=self._n_substeps)
+        s = sim_state.states
+        R = _quat_xyzw_to_matrix(s.quat[0, 0])
+        x_next = jnp.concatenate([s.pos[0, 0], R.reshape(9), s.vel[0, 0], s.ang_vel[0, 0]])
+        return sim_state, x_next
+
     def render(self) -> None:
         self._sim.render()
 
@@ -121,3 +159,18 @@ class Plant:
         omega_body = np.asarray(s.ang_vel[0, 0], dtype=np.float64)
         R = Rotation.from_quat(quat_xyzw).as_matrix()  # scipy uses xyzw, same as Crazyflow
         return np.concatenate([p, R.ravel(), v, omega_body])
+
+
+def _quat_xyzw_to_matrix(q: jax.Array) -> jax.Array:
+    """Unit quaternion (x, y, z, w), Crazyflow's order, to rotation matrix (body -> world), in jnp.
+
+    Same result as scipy's Rotation.from_quat(q).as_matrix() in _read_state, but differentiable.
+    """
+    x, y, z, w = q
+    return jnp.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
