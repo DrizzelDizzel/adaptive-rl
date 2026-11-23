@@ -20,12 +20,13 @@ the decision log (`docs/decisions.md`, numbers #n) and the commits. Keep items s
   held-out runs by 4–12× under disturbances.
 - **Policy gradient:** as in the charter, from finite-horizon rollouts inside the hybrid model,
   starting at the currently measured state. First-order: BPTT through these rollouts.
-- **First closed-loop result:** with an untrained residual (hybrid = nominal model), the
-  online first-order adaptation makes a +30 % mass change worse than no adaptation and ends
-  in a crash. A model that does not know the disturbance steers the policy the wrong way.
-  This is the motivation for the next step.
-- **Not built yet:** the online model update; the zeroth-order pipeline; the comparisons
-  FO vs ZO and nominal vs hybrid model.
+- **Online model update:** in every control step the residual takes one Adam step on a
+  sliding window of the newest real transitions, then the policy takes one SGD step.
+- **First closed-loop results (+30 % mass mid-flight):** with the nominal model the
+  adaptation steers the wrong way and crashes. With the online model (window 1–2 s) the
+  error after the switch drops from 50 cm (baseline) to 11–14 cm. With a 5 s window the
+  model learns a spurious dependence on vertical velocity and the adaptation fails again.
+- **Not built yet:** the zeroth-order pipeline; the FO vs ZO comparison.
 
 ## 2. The system
 
@@ -36,8 +37,8 @@ the decision log (`docs/decisions.md`, numbers #n) and the commits. Keep items s
     ▲                                                                                     │
     └─────────────────────────────────────── z⁻¹ ◄───────────────────────────────────────┤
                                                                                           │
-   model loop:    buffer of recent real tuples (x, u, x⁺) → update residual φ   ◄─────────┘
-                  (not built yet)
+   model loop:    sliding window of the last W s of real tuples (x, u, x⁺)   ◄────────────┘
+                  → one Adam step on residual φ
    policy loop:   from x_k, roll out H = 30 steps in the hybrid model with π_θ
                   → cost on the predicted states → BPTT → one clipped SGD step on θ
 
@@ -121,6 +122,16 @@ Ordered by how much of the project depends on them.
 - *Why:* in closed loop u = controller(x); without noise the effect of u (what BPTT needs) is
   not identifiable. LotF gets variety from random resets; we have none.
 
+**A9. Online model update (#22).**
+- *Decision:* in every control step, first the model, then the policy. The residual takes one
+  Adam step (lr 1e-2, warm start) on a sliding window of the newest W s of real transitions;
+  it starts at zero (hybrid = nominal), one network, no excitation.
+- *Why:* the model must adapt at least as fast as the policy, because a stale model steers
+  the policy the wrong way (Section 5.1). Offline, Adam needed 40–130 full-batch steps from
+  zero, i.e. 0.4–1.3 s at one step per control step.
+- *Alternatives:* LotF retrains every 3 s for 100 iterations on a 2–5 s buffer with an
+  ensemble of 3; exponential forgetting instead of a hard window (noted for later).
+
 ## 4. Results so far
 
 **Model, open-loop prediction on held-out runs (#16).** Position error at k = 30 steps
@@ -142,11 +153,17 @@ error:
 | | 5–10 s (nominal) | 10–12 s (after switch) | 15–20 s |
 |---|---|---|---|
 | baseline | 2.2 cm | 32 cm | 50 cm |
-| FO adaptation, untrained residual (= nominal model), H = 30, lr 1e-2 | 2.1 cm | 31 cm | crash at 15.4 s |
+| FO, nominal model (residual untrained) | 2.1 cm | 31 cm | crash at 15.4 s |
+| FO, online model, window 1 s | 2.3 cm | 6.9 cm | 11.5 cm |
+| FO, online model, window 2 s | 2.3 cm | 5.3 cm | 13.7 cm |
+| FO, online model, window 5 s | 2.2 cm | 20 cm | 65 cm |
 
-The baseline has no integrator and keeps a ~49 cm height offset. Under adaptation the thrust
-correction turns negative (−0.65 m·g at 15 s) and the drone sinks until it hits the floor
-limit.
+H = 30, policy SGD lr 1e-2, model: one Adam step (lr 1e-2) per control step, residual
+starts at zero. The baseline has no integrator and keeps a ~49 cm height offset. With the
+nominal model the thrust correction turns negative (−0.65 m·g at 15 s) until the drone hits
+the floor limit. With the 1–2 s window the online model predicts the mass effect within
+~0.5 s, the thrust correction turns positive and reaches +0.25 m·g at 20 s (0.30 needed,
+still rising).
 
 ## 5. Findings worth discussing
 
@@ -169,10 +186,14 @@ limit.
    gradient on a circle: ∂v_z⁺/∂T is 0.015 (true) vs 0.23 (nominal), ∂ω⁺/∂ω_cmd is 0.14–0.32
    (true) vs 1 (nominal). Cause: rotor and rate dynamics within 10 ms. Over H steps this
    probably averages out partly; not measured yet.
-3. **Identifiability of the residual online.** In closed loop u = policy(x). Without
-   excitation the residual cannot separate the effect of u from that of x, so its predictions
-   for actions other than the flown ones are unreliable, and its derivative w.r.t. u is
-   arbitrary. Offline this was solved with injected noise (A8).
+3. **Identifiability of the residual online, confirmed.** In closed loop the data never
+   show the drone rising while heavy. With a 5 s window the residual explains the mass effect
+   partly through vertical velocity (learned ∂a_res,z/∂v_z ≈ +6 … +16 instead of ≈ 0): it is
+   right at the flown state (sinking), but in the imagined rollout the drone rises and the
+   model predicts only −0.3 … −0.7 m/s² instead of −2.9. The rollout is then back to the
+   nominal case of finding 1. The one-step error at the flown state does not reveal this.
+   Candidate remedies: excitation noise in closed loop (A8 online), removing or constraining
+   inputs of the residual, shorter windows.
 
 ## 6. Alignment with the project charter (2026-11-11)
 
@@ -187,11 +208,11 @@ limit.
 
 ## 7. Open questions for the next steps
 
-1. **Online model update:** buffer length vs forgetting after a change (short buffer: fresh
-   but poorly identified; long buffer: well identified but mixes old and new dynamics), model
-   steps per control step, start from the offline model or from zero.
+1. **Online model update:** sliding window (1–2 s works, 5 s fails, Section 5.3);
+   exponential forgetting as an alternative; model every control step and policy every
+   second step. Is "the model must adapt at least as fast as the policy" the right principle?
 2. **Excitation during online operation** (Section 5.3): acceptable to inject small noise in
-   closed loop, or should identifiability come from elsewhere?
+   closed loop, or should identifiability come from elsewhere (e.g. fewer residual inputs)?
 3. **Derivative through the residual (A5 option):** smooth activation needed (tanh/softplus
    instead of ReLU)? Should the comparison of model vs true Jacobians over H steps become a
    main evaluation?
@@ -201,9 +222,7 @@ limit.
 
 ## 8. Next steps
 
-1. **Online model update** in the loop (model first, then policy, every control step), then
-   the mass-switch and wind experiments: baseline vs FO with the nominal model vs FO with the
-   online hybrid model.
+1. **Identifiability of the online model** (Section 5.3), then the wind experiment.
 2. **Zeroth-order pipeline** on the same model rollouts, with the same policy and cost.
 3. **Evaluation:** tracking over time, online model error, model gradient vs true gradient.
    Rendering of runs for the report.

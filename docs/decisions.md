@@ -196,6 +196,37 @@ wachsenden Geschwindigkeitsfehler → weniger Schub → größerer Fehler. Einze
 kennt −0,23 g: +0,11 m·g. Ein veraltetes Modell lenkt die Policy also aktiv in die falsche
 Richtung; erst das Online-Modell macht die Anpassung möglich.
 
+### 22. Online-Update des Dynamikmodells (2026-11-23)
+`dynamics/online.py`, `scripts/run_adaptive.py`. Pro Regeltakt erst Modell, dann Policy.
+- Grundsatz: Das Modell muss mindestens so schnell nachlernen wie die Policy, eher schneller.
+  Ein veraltetes Modell lenkt die Policy in die falsche Richtung (#20).
+- Puffer: gleitendes Fenster der letzten W s echter Tupel (x, u, x⁺), als (Features, Target)
+  wie offline (#14); Ringpuffer fester Größe (jit kompiliert pro Array-Form einmal).
+  LotF: rollender Puffer, 2 s (Hover) / 5 s (Trajektorie) bei 50 Hz.
+- Pro Takt k Adam-Schritte (Default 1, lr 1e-2 wie #14) auf dem ganzen Fenster, Gewichte
+  warm weiter. LotF: alle 3 s 100 Iterationen, Ensemble aus 3 Netzen, parallele Threads.
+  Offline brauchte Adam 40–130 Schritte von null → bei 1 Schritt/Takt ~0,4–1,3 s.
+- Start: Null-Init (hybrid = nominal), alles Gelernte stammt aus dem Flug. Offline-Start
+  („eventually pretrained“, Charter) später als Ablation. ReLU bleibt (unter J1 wird die
+  Ableitung des Netzes nicht benutzt). Ein Netz, kein Ensemble (#12).
+- Daten ab 2 s (#4); Modell und Policy lernen, sobald das Fenster voll ist (2 s + W).
+- Keine Anregung online und kein Aussetzen der Policy bei schlechtem Modell: erst messen.
+Später: exponentielles Vergessen (Gewicht λ^Alter, wie RLS) statt hartem Fenster;
+Modell jeden Takt, Policy nur jeden 2. Takt.
+Gemessen (Kreis, Masse ×1,3 ab 10 s, H = 30, Policy-lr 1e-2, 1 Modellschritt/Takt;
+Positionsfehler [cm] 5–10 / 10–12 / 15–20 s): Baseline 2,2 / 32 / 50; FO nominal Absturz;
+Fenster 1 s: 2,3 / 6,9 / 11,5; 2 s: 2,3 / 5,3 / 13,7; 5 s: 2,2 / 20 / 65 (schlechter als
+Baseline). Schubkorrektur bei 1 s / 2 s ~+0,25 m·g bei 20 s (nötig 0,30), noch steigend.
+Das Modell trifft a_res am geflogenen Zustand bei allen Fenstern nach ~0,5 s (a priori
+0,03–0,10 m/s² ab 15 s); die erwartete Mischung alt/neu im Fenster tritt nicht auf.
+Ursache des 5-s-Falls (Diagnose, Scratchpad): Das Netz hat a_res an v_z gekoppelt
+(∂a_res,z/∂v_z = +6 … +16 statt ≈ 0), weil im Fenster „sinkt“ mit „a_res negativ“ und
+„v_z ≈ 0“ mit „a_res = 0“ (vor dem Wechsel) zusammenfällt. Im Rollout steigt die Drohne
+(v_z ≈ +0,2–0,3), das Modell sagt dort a_res ≈ −0,3 … −0,7 statt −2,9 voraus → nominaler
+Fall (#20), negative Korrektur. Bei 2 s ist die Kopplung schwächer (+2 … +6), der
+Rollout-Mittelwert meist −2,3 … −2,9. Identifizierbarkeit (#7) bestätigt; der
+A-priori-Fehler am geflogenen Zustand zeigt das nicht.
+
 ## ToDo
 
 ### 9. Messrauschen / Zustandsschätzung
