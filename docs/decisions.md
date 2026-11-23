@@ -265,6 +265,10 @@ Für Bericht und Verständnis. Aus aufgezeichneten Läufen (Replay), nicht in de
 gleiches Format offline und online, Schleife bleibt unberührt; live später nur zweite
 Datenquelle. Werkzeug (Crazyflow/MuJoCo mit mehreren Drohnen, matplotlib 3D) dann
 entscheiden. Zeitpunkt: Anfang des Closed-Loop-Teils.
+Stand 2026-11-23: matplotlib-3D als GIF (`scripts/render_runs.py`, liest die `.npz`, die
+`run_adaptive.py` neben die Abbildung schreibt; Pillow, kein ffmpeg). Punkte + 1-s-Spur je
+Lauf, Farben wie in den Abbildungen. Offen: MuJoCo-Replay mit Drohnenmodellen für Bericht
+und Präsentation.
 
 ### 19. Modell-Gradienten gegen den wahren Gradienten messen
 Mit `Plant.snapshot`/`true_step` (#11): Sensitivität ∂x_{k+H}/∂u_k für H = 1, 10, 30,

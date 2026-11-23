@@ -129,7 +129,8 @@ def fly(args, adapt: bool, window_s: float | None = None, seed: int = 0) -> dict
     plant.close()
 
     err = np.linalg.norm(X[: n + 1, 0:3] - P_ref[: n + 1], axis=1)
-    return dict(T=T[: n + 1], err=err, correction=U[:n] - U_base[:n] - E[:n], hover_thrust=mass * 9.81,
+    return dict(T=T[: n + 1], err=err, p=X[: n + 1, 0:3], p_ref=P_ref[: n + 1],
+                correction=U[:n] - U_base[:n] - E[:n], hover_thrust=mass * 9.81,
                 a_res_pred=a_res_pred[:n], a_res_target=a_res_target[:n], a_res_rollout=a_res_rollout[:n])
 
 
@@ -203,6 +204,15 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150)
     print(f"-> {out}")
+
+    # Positions of every run next to the figure, for scripts/render_runs.py (#18). Flat keys,
+    # numbers and strings only: np.load then needs no pickle.
+    trajectories = {"names": np.array(list(runs)), "switch_time": args.switch_time, "mass_factor": args.mass_factor,
+                    "t_ref": runs["baseline"]["T"], "p_ref": runs["baseline"]["p_ref"]}
+    for i, run in enumerate(runs.values()):
+        trajectories[f"t{i}"], trajectories[f"p{i}"] = run["T"], run["p"]
+    np.savez(out.with_suffix(".npz"), **trajectories)
+    print(f"-> {out.with_suffix('.npz')}")
 
 
 if __name__ == "__main__":
