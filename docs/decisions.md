@@ -133,18 +133,17 @@ z. B. heavy-Residuum auf nominal-Daten 2,2 → 7,0 cm. Ein offline gelerntes Res
 schadet, sobald sich die Situation ändert → Motivation für Online-Anpassung.
 Verworfen: Fenster ohne Überlappung (~58 bei k = 30, verrauscht); feste Schwelle in cm.
 
-### 11. Wodurch fließt der Policy-Gradient? (2026-11-22)
-Zwei Achsen: welche Jacobi-Matrizen A = ∂f/∂x, B = ∂f/∂u BPTT benutzt (J), und entlang
-welcher Trajektorie sie ausgewertet werden (T).
-- J: Schalter `hybrid.step(..., grad_through_residual)`. Standard False wie LotF
-  (`Quadrotor.step`, `custom_jvp`: vorwärts genaues Modell, rückwärts `simplified_dyn`):
-  a_res per `stop_gradient` konstant → Jacobi = nominal, exakt, weil a_res additiv eingeht.
-  True: Kette auch durch das Netz; Ablation. Entschieden wird per Messung gegen die wahre
+### 11. Welche Jacobi-Matrizen benutzt BPTT? (2026-11-22)
+A = ∂f/∂x, B = ∂f/∂u im Rollout (#17). Schalter `hybrid.step(..., grad_through_residual)`.
+- J1 (Standard, wie LotF `Quadrotor.step`, `custom_jvp`: vorwärts genaues Modell, rückwärts
+  `simplified_dyn`): a_res per `stop_gradient` konstant → Jacobi = nominal, exakt, weil a_res
+  additiv eingeht. Das Residuum wirkt trotzdem auf den Gradienten: über die vorhergesagten
+  Zustände, an denen Kosten und Jacobi ausgewertet werden.
+- J2 (nur Option): Kette auch durch das Netz. Zählt bei Störungen, die die Wirkung von u
+  ändern (Masse: a_res hängt von T ab); bei additiver, zustands- und eingangsunabhängiger
+  Störung (konstanter Wind) ist J1 = J2. Bewertet per Messung gegen die wahre
   Crazyflow-Jacobi (`jax.jacfwd` durch Crazyflows reine Step-Funktion, geprüft: endlich,
-  stimmt mit finiten Differenzen).
-- T: zuerst T2, entlang der gemessenen Trajektorie (Kosten aus echten Zuständen, Modell
-  liefert nur A, B). FO und ZO arbeiten dann auf denselben Daten, Unterschied = Schätzer.
-  Folge: mit J1 wirkt das Residuum nicht auf den Gradienten, nur mit J2. T1: #17.
+  stimmt mit finiten Differenzen), #19.
 Erste Messung (ein Schritt, Kreis, nominal): wahres ∂v_z⁺/∂T = 0,015, nominal 0,23;
 wahres ∂ω⁺/∂ω_cmd = 0,32/0,28/0,14 (Diagonale), nominal 1. Grund: Rotor- und
 Ratendynamik (#6); B des Nominalmodells ist über einen Schritt um Faktor 3–15 zu groß.
@@ -152,6 +151,19 @@ Wahre Dynamik zur Auswertung: `Plant.snapshot()` (voller Crazyflow-Zustand inkl.
 drehzahlen) und `Plant.true_step(state, u) → (state⁺, x⁺)`, rein und differenzierbar. Nur
 plant.py kennt Crazyflow (#3); die Regelschleife benutzt beides nie. Die `.npz`-Läufe
 reichen dafür nicht: die wahre Jacobi hängt vom versteckten Zustand ab.
+
+### 17. Policy-Gradient aus Rollouts im Hybridmodell (2026-11-23)
+Projekt-Charter: „The finite-horizon rollouts live inside the model“, FO und ZO auf dem
+Surrogat. In jedem Regeltakt: vom gerade gemessenen x_k H Schritte mit der aktuellen Policy
+und der Referenz ref_k … ref_{k+H} im Hybridmodell ausrollen, Kosten auf den vorhergesagten
+Zuständen, BPTT durch diesen Rollout (Ableitungen #11). LotF-Prinzip.
+- Die echten Tupel (x, u, x⁺) im Puffer dienen nur dem Modell-Fit. Der Gradient braucht
+  vom echten Flug nur x_k.
+- Das Modell zählt direkt: ein genaueres Residuum sagt Drift durch die Störung voraus, der
+  Gradient korrigiert vorausschauend. Mit veraltetem Residuum sieht der Rollout nur den
+  aktuellen Versatz.
+- Preis: Vorwärtsfehler summieren sich über H (#16: nominal ~2,2 cm, hybrid ~1,2 cm bei
+  k = 30 auf dem Kreis).
 
 ### 20. Policy und First-Order-Anpassung im Closed Loop (2026-11-22)
 `policy.py`, `pipelines/first_order/gradient.py`, `scripts/run_adaptive.py`.
@@ -164,24 +176,25 @@ reichen dafür nicht: die wahre Jacobi hängt vom versteckten Zustand ab.
   Parameterzahl, BPTT braucht glatte Ableitungen. Ausgang Raten in rad/s, Schub in m_nom·g.
 - P4 Kosten wie LotF (smooth_L1 auf e_p, e_v), Aktionsterm auf die Korrektur π statt
   u − u_hover (Baseline-Kommando auf dem Kreis ist weit vom Schweben). Gewicht: siehe unten.
-- P5 T2-Fenster H = 30 über die letzten gemessenen Zustände; Straight-Through
-  x̃⁺ = x⁺_mess + f − stop_gradient(f): Wert gemessen, Ableitung vom Nominalmodell (J1),
-  inkl. Rückführung über die Baseline. Ein SGD-Schritt pro Regeltakt (kein Adam: würde
+- P5 Rollout H = 30 im Hybridmodell ab dem gemessenen x_k (#17), Ableitung J1 (#11), inkl.
+  Rückführung über die Baseline. Ein SGD-Schritt pro Regeltakt (kein Adam: würde
   FO-Verzerrung gegen ZO-Rauschen verdecken), Clipping auf Gradientennorm 1. Lernen ab 2 s (#4).
 - P6 Baseline-Regler in JAX (`cascaded_control`), gleiche Werte wie numpy (rel. 6e-7),
   `fly_circle.py` unverändert 1,6 cm (#5).
 - P7 Erstes Experiment: Kreis, Masse ×1,3 ab t = 10 s, gegen reine Baseline. #9, #13
   bewusst verschoben, bis FO und ZO laufen.
 Gemessen (mittlerer Positionsfehler [cm], 5–10 / 10–12 / 15–20 s): Baseline 2,2 / 32 / 50
-(ohne Integrator: Höhenfehler ≈ 0,23·g/k_p). FO mit Aktionsgewicht 0,1: Schubkorrektur
-bleibt bei ~0,22 m·g statt 0,30 stehen, Rest ~12 cm, unabhängig von lr (1e-3 … 3e-2).
-Mit Gewicht 0,01 oder 0: Korrektur 0,30, Fehler 15–20 s 1,3 cm (lr = 1e-2), besser als die
-Baseline vor dem Wechsel. Grund: LotFs 0,1 gilt in N und rad/s; unser Schub ist in m·g
-normiert, dieselbe Zahl wirkt dadurch ~6× stärker.
-lr = 1e-2 erzeugt vor dem Wechsel eine anwachsende Schwingung der Schubkorrektur
-(Periode ~1 s, Std 0,02–0,04 m·g); lr = 3e-3 kaum (0,002), passt sich aber langsamer an.
-Gewählt: Aktionsgewicht 0,01 (LotFs 0,1 in unseren Einheiten), lr = 1e-2 (Anpassung
-schnell genug, um sie zu sehen); Schwingung → #21.
+(ohne Integrator: Höhenfehler ≈ 0,23·g/k_p).
+Aktionsgewicht 0,01 statt LotFs 0,1: LotFs Wert gilt in N und rad/s; unser Schub ist in m·g
+normiert, dieselbe Zahl wirkt dadurch ~6× stärker. lr = 1e-2 vorläufig.
+FO mit Modell-Rollout (#17), Residuum untrainiert (hybrid = nominal), H = 30, lr = 1e-2
+(2026-11-23): 2,1 / 31 cm, dann Absturz bei 15,4 s. Die Schubkorrektur wird negativ
+(−0,65 m·g bei 15 s). Grund: Das Nominalmodell weiß nichts von der Masse; im Rollout zieht
+die Baseline die zu tief fliegende Drohne selbst hoch, und der Gradient dämpft vor allem den
+wachsenden Geschwindigkeitsfehler → weniger Schub → größerer Fehler. Einzelner Update-Schritt
+(Testfall): 5 cm unter der Referenz, nominal: −0,012 m·g (H = 30); auf der Referenz, Residuum
+kennt −0,23 g: +0,11 m·g. Ein veraltetes Modell lenkt die Policy also aktiv in die falsche
+Richtung; erst das Online-Modell macht die Anpassung möglich.
 
 ## ToDo
 
@@ -204,11 +217,6 @@ in normalem Python; ~10 s pro Bedingung). Schneller: ganze Schleife in `jax.lax.
 LotF, dann Auswertung und beste Gewichte im kompilierten Code. Relevant, sobald das
 Training oft läuft (Sweeps, Online-Nachtraining).
 
-### 17. T1: Gradient entlang einer vorgestellten Modell-Rollout
-Vom gemessenen Zustand H Schritte mit Policy im Hybridmodell ausrollen und differenzieren.
-Dort zählt das Vorwärtsmodell direkt (LotF-Prinzip); Vorwärtsfehler summieren sich auf
-(#16: ~1 cm bei k = 30). Variante zu T2 (#11), nach dem ersten FO-Ergebnis entscheiden.
-
 ### 18. Rendern: Referenz, Baseline, Policy/Modell nebeneinander
 Für Bericht und Verständnis. Aus aufgezeichneten Läufen (Replay), nicht in der Schleife:
 gleiches Format offline und online, Schleife bleibt unberührt; live später nur zweite
@@ -222,10 +230,3 @@ Fehler getrennt für Position und Lage. Offen: ob das Nachwirken der Ratendynami
 Einschrittfehler (Faktor 3–15) über H ausgleicht. J2 erst mit ReLU, bei rauen Ableitungen
 glatte Aktivierung (softplus/tanh, Neutraining). Später ebenso für den Policy-Gradienten
 selbst (FO und ZO gegen wahr). Spätestens mit dem ersten FO-Ergebnis einbauen.
-
-
-### 21. Schwingung der Online-Anpassung bei lr = 1e-2
-Vor dem Massenwechsel wächst die Schubkorrektur zu einer Schwingung (~1 s Periode) an.
-Klassischer Zielkonflikt Adaptionsverstärkung gegen Stabilität. Erst prüfen: 60 s nominal,
-bleibt sie begrenzt oder divergiert sie? Mögliche Ursachen (ungeprüft): Schrittweite,
-verzerrtes nominales B (#11), veraltete Daten im Fenster.

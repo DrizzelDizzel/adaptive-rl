@@ -6,7 +6,7 @@ The output layer starts at exactly zero, so the untrained policy IS the baseline
 stable from the first control step, which matters because there are no resets (P1).
 Inputs are tracking errors, not absolute positions, so the policy is not tied to one
 trajectory (P2). Small and smooth (2 x 32, tanh): the zeroth-order gradient gets noisier with
-every parameter, and BPTT multiplies the policy's derivatives over the window (P3).
+every parameter, and BPTT multiplies the policy's derivatives over the rollout (P3).
 """
 
 import jax
@@ -66,6 +66,6 @@ def act(policy: PolicyMLP, baseline: CascadedController, x: jax.Array, ref) -> j
     """u = baseline(x, ref) + correction. The baseline knows the nominal mass and its gains.
 
     Pure function of (policy weights, x, ref): the same code runs in the control loop and
-    inside the BPTT window, so the gradient sees exactly the policy that flies.
+    inside the BPTT rollout, so the gradient sees exactly the policy that flies.
     """
     return baseline(x, ref) + correction(policy, x, ref, baseline.mass)

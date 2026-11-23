@@ -1,10 +1,12 @@
-"""Closed loop: residual policy adapted online by first-order gradients (T2, J1), vs baseline.
+"""Closed loop: residual policy adapted online by first-order gradients, vs baseline.
 
 Circle, payload switch mid-run (nominal -> +30 % mass at t = 10 s, never told to anyone).
 Two runs with the same plant, reference and disturbance:
   baseline: the policy is never updated, so it stays exactly the baseline controller
-  adaptive: one SGD step per control step on the window of the last H measured steps
-Docs: docs/decisions.md #11, #20.
+  adaptive: one SGD step per control step on an H-step rollout in the hybrid model,
+            starting at the state just measured
+The residual is untrained (a_res = 0, hybrid == nominal) until the online model update exists.
+Docs: docs/decisions.md #11, #17, #20.
 
 Usage:
     pixi run python scripts/run_adaptive.py                  # table + results/figures/run_adaptive.png
@@ -23,6 +25,7 @@ import numpy as np
 from flax import nnx
 
 from adaptive_rl.controllers import CascadedController
+from adaptive_rl.dynamics.residual import ResidualMLP
 from adaptive_rl.pipelines.first_order import gradient
 from adaptive_rl.policy import PolicyMLP, act
 from adaptive_rl.reference import Circle
@@ -40,14 +43,17 @@ def fly(adapt: bool, args, seed: int = 0) -> dict:
     dt = plant.dt
     baseline = CascadedController(plant.nominal_mass)  # knows only the nominal mass (#8)
     policy = PolicyMLP(rngs=nnx.Rngs(seed))
+    residual = ResidualMLP(rngs=nnx.Rngs(seed))  # zero output layer: hybrid == nominal (#12)
     optimizer = gradient.make_optimizer(policy, args.lr, MAX_GRAD_NORM)
     act_jit = nnx.jit(act, static_argnames="baseline")
 
-    n = int(args.duration / dt)
+    n, H = int(args.duration / dt), args.horizon
     T = np.arange(n + 1) * dt
-    # Reference at the time of every state x_k (k = 0 .. n), precomputed: it does not depend
-    # on the flight. Index k of X and of the references always refers to the same time.
-    P_ref, V_ref, A_ref = (np.array(a, dtype=np.float32) for a in zip(*[reference(t) for t in T]))
+    # Reference at the time of every state x_k, precomputed: it does not depend on the flight.
+    # Index k of X and of the references always refers to the same time. H steps beyond the
+    # end, because the last rollouts look H steps ahead.
+    T_ref = np.arange(n + H + 1) * dt
+    P_ref, V_ref, A_ref = (np.array(a, dtype=np.float32) for a in zip(*[reference(t) for t in T_ref]))
     X = np.zeros((n + 1, 18), dtype=np.float32)
     U = np.zeros((n, 4), dtype=np.float32)
     U_base = np.zeros((n, 4), dtype=np.float32)
@@ -65,11 +71,12 @@ def fly(adapt: bool, args, seed: int = 0) -> dict:
         U_base[k] = baseline(X[k], ref)
         X[k + 1] = plant.step(U[k])
 
-        # Window: states x_{k+1-H} .. x_{k+1} (H + 1 states, the newest just measured).
-        if adapt and k + 1 - args.horizon >= k_adapt:
-            w = slice(k + 1 - args.horizon, k + 2)
+        # Rollout from the state just measured, x_{k+1}, with the reference at k+1 .. k+1+H.
+        if adapt and k + 1 >= k_adapt:
+            w = slice(k + 1, k + 2 + H)
             refs = (jnp.asarray(P_ref[w]), jnp.asarray(V_ref[w]), jnp.asarray(A_ref[w]))
-            loss_k, grad_norm_k = gradient.update(policy, optimizer, baseline, jnp.asarray(X[w]), refs, dt)
+            x0 = jnp.asarray(X[k + 1])
+            loss_k, grad_norm_k = gradient.update(policy, optimizer, residual, baseline, x0, refs, dt)
             loss[k], grad_norm[k] = float(loss_k), float(grad_norm_k)
 
         if not np.all(np.isfinite(X[k + 1])) or X[k + 1, 2] < 0.1:
@@ -86,14 +93,14 @@ def fly(adapt: bool, args, seed: int = 0) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=1e-2, help="SGD step size")
-    parser.add_argument("--horizon", type=int, default=30, help="window length H [control steps]")
+    parser.add_argument("--horizon", type=int, default=30, help="rollout horizon H [control steps]")
     parser.add_argument("--duration", type=float, default=20.0)
     parser.add_argument("--switch-time", type=float, default=10.0)
     parser.add_argument("--mass-factor", type=float, default=1.3)
     parser.add_argument("--out", default="results/figures/run_adaptive.png")
     args = parser.parse_args()
 
-    runs = {"baseline": fly(False, args), "adaptive (FO, T2, J1)": fly(True, args)}
+    runs = {"baseline": fly(False, args), "adaptive (FO)": fly(True, args)}
 
     print(f"\nlr = {args.lr:g}, H = {args.horizon}, mass x{args.mass_factor} at t = {args.switch_time} s")
     print("mean position error [cm]   " + "".join(f"{name:>24s}" for name in INTERVALS))
@@ -108,7 +115,7 @@ def main() -> None:
     for name, run in runs.items():
         axes[0].plot(run["T"], 100 * run["err"], label=name)
         axes[1].plot(run["T"], 100 * run["z_err"], label=name)
-    adaptive = runs["adaptive (FO, T2, J1)"]
+    adaptive = runs["adaptive (FO)"]
     t_u = adaptive["T"][:-1]
     axes[2].plot(t_u, adaptive["correction"][:, 3] / adaptive["hover_thrust"], label="thrust correction / (m_nom g)")
     axes[2].plot(t_u, np.linalg.norm(adaptive["correction"][:, :3], axis=1), label="|rate correction| [rad/s]")
