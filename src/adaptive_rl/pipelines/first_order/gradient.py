@@ -53,6 +53,31 @@ def stage_cost(x_next: jax.Array, ref_next, policy_output: jax.Array) -> jax.Arr
     return W_POS * smooth_l1(p - p_ref) + W_VEL * smooth_l1(v - v_ref) + W_CORRECTION * smooth_l1(policy_output)
 
 
+def imagine(
+    policy: PolicyMLP,
+    residual: ResidualMLP,
+    baseline: CascadedController,
+    x0: jax.Array,
+    refs,
+    dt: float,
+    grad_through_residual: bool = False,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """The H-step closed-loop rollout in the hybrid model. x0: (18,) measured state;
+    refs: (P_ref, V_ref, A_ref), each (H+1, 3), the reference at the time of x^_0 .. x^_H.
+    Returns predicted states x^_1 .. x^_H (H, 18), commands u_0 .. u_{H-1} (H, 4) and the
+    network outputs (H, 4). Used by rollout_loss and, for diagnosis, by run_adaptive.py."""
+    P_ref, V_ref, A_ref = refs
+
+    def body(x, ref):
+        u = act(policy, baseline, x, ref)
+        x_next = hybrid.step(residual, x, u, baseline.mass, dt, grad_through_residual)
+        return x_next, (x_next, u, policy(inputs(x, ref)))
+
+    # lax.scan over j = 0 .. H-1 (as hybrid.rollout): carry x^_j, outputs of step j stacked.
+    _, (xs, us, outs) = jax.lax.scan(body, x0, (P_ref[:-1], V_ref[:-1], A_ref[:-1]))
+    return xs, us, outs
+
+
 def rollout_loss(
     policy: PolicyMLP,
     residual: ResidualMLP,
@@ -62,22 +87,10 @@ def rollout_loss(
     dt: float,
     grad_through_residual: bool = False,
 ) -> jax.Array:
-    """Mean stage cost of an H-step rollout in the hybrid model. x0: (18,) measured state;
-    refs: (P_ref, V_ref, A_ref), each (H+1, 3), the reference at the time of x^_0 .. x^_H."""
+    """Mean stage cost of the imagined rollout: x^_{j+1} against the reference at j+1."""
+    xs, _, outs = imagine(policy, residual, baseline, x0, refs, dt, grad_through_residual)
     P_ref, V_ref, A_ref = refs
-
-    def body(x, step_data):
-        p_ref, v_ref, a_ref, p_ref_next, v_ref_next, a_ref_next = step_data
-        ref, ref_next = (p_ref, v_ref, a_ref), (p_ref_next, v_ref_next, a_ref_next)
-
-        u = act(policy, baseline, x, ref)
-        x_next = hybrid.step(residual, x, u, baseline.mass, dt, grad_through_residual)
-        cost = stage_cost(x_next, ref_next, policy(inputs(x, ref)))
-        return x_next, cost
-
-    # lax.scan over j = 0 .. H-1 (as hybrid.rollout): carry x^_j, output cost_j.
-    step_data = (P_ref[:-1], V_ref[:-1], A_ref[:-1], P_ref[1:], V_ref[1:], A_ref[1:])
-    _, costs = jax.lax.scan(body, x0, step_data)
+    costs = jax.vmap(stage_cost)(xs, (P_ref[1:], V_ref[1:], A_ref[1:]), outs)
     return jnp.mean(costs)
 
 

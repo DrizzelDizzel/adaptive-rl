@@ -157,13 +157,18 @@ error:
 | FO, online model, window 1 s | 2.3 cm | 6.9 cm | 11.5 cm |
 | FO, online model, window 2 s | 2.3 cm | 5.3 cm | 13.7 cm |
 | FO, online model, window 5 s | 2.2 cm | 20 cm | 65 cm |
+| same + held thrust noise 0.1 m·g, window 1 s | 8.6 cm | 2.2 cm | 1.7 cm |
+| same + held thrust noise 0.1 m·g, window 2 s | 5.7 cm | 4.3 cm | 2.7 cm |
+| same + held thrust noise 0.1 m·g, window 5 s | 4.0 cm | 13 cm | 58 cm |
 
 H = 30, policy SGD lr 1e-2, model: one Adam step (lr 1e-2) per control step, residual
 starts at zero. The baseline has no integrator and keeps a ~49 cm height offset. With the
 nominal model the thrust correction turns negative (−0.65 m·g at 15 s) until the drone hits
 the floor limit. With the 1–2 s window the online model predicts the mass effect within
 ~0.5 s, the thrust correction turns positive and reaches +0.25 m·g at 20 s (0.30 needed,
-still rising).
+still rising). Excitation noise on the thrust lets the short windows reach the full
+correction (0.30 m·g) but costs tracking before the switch (2.2 → 4–9 cm) and does not fix
+the 5 s window.
 
 ## 5. Findings worth discussing
 

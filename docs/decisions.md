@@ -225,7 +225,19 @@ Ursache des 5-s-Falls (Diagnose, Scratchpad): Das Netz hat a_res an v_z gekoppel
 (v_z ≈ +0,2–0,3), das Modell sagt dort a_res ≈ −0,3 … −0,7 statt −2,9 voraus → nominaler
 Fall (#20), negative Korrektur. Bei 2 s ist die Kopplung schwächer (+2 … +6), der
 Rollout-Mittelwert meist −2,3 … −2,9. Identifizierbarkeit (#7) bestätigt; der
-A-priori-Fehler am geflogenen Zustand zeigt das nicht.
+A-priori-Fehler am geflogenen Zustand zeigt das nicht. Deshalb zeichnet `run_adaptive.py`
+jetzt zusätzlich das mittlere a_res,z entlang des vorgestellten Rollouts auf
+(`gradient.imagine`, derselbe Rollout wie im Gradienten); ohne Rauschen −2,5 / −2,6 / −1,0
+(10–12 s) für 1 / 2 / 5 s.
+Anregung online (`--noise`, gehaltenes Schubrauschen, nur Schub, alle 10 Takte, nur in den
+Online-Läufen), 0,1 m·g wie offline (#7): 1 s: 8,6 / 2,2 / 1,7 cm; 2 s: 5,7 / 4,3 / 2,7 cm;
+5 s: 4,0 / 13 / 58 cm. Nach dem Wechsel erreicht die Schubkorrektur bei 1 s / 2 s ~0,30 m·g
+(ohne Rauschen 0,25). Preis vor dem Wechsel: 2,2 → 4–9 cm, die Korrektur schwankt um ±0,2 m·g.
+Das Target a_res schwankt mit dem Rauschen um ±2–3 m/s² (vermutlich Schubverzögerung, die
+das Nominalmodell nicht kennt, #6; ungeprüft), das Modell folgt, der Rollout-Mittelwert
+zeigt Spitzen bis −15 … −20 m/s². Das 5-s-Fenster bleibt gescheitert (Rollout −1,3 / −1,7).
+Laufzeit: zwei Läufe parallel bremsen sich gegenseitig um >10× (JAX-Threadpools über alle
+Kerne); Läufe nacheinander starten (~2 min für 5 Läufe).
 
 ## ToDo
 
