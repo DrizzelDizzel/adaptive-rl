@@ -7,8 +7,6 @@ version = "0.1.0"
 
 [tasks]
 #Run these via "pixi run xxx"
-smoke = "python scripts/crazyflow_smoke.py"
-smoke-render = "python scripts/crazyflow_smoke.py --render"
 test = "pytest tests"
 
 # Only Python comes from conda; everything else from PyPI, so no package exists twice.

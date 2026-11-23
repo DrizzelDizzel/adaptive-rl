@@ -48,6 +48,21 @@ the decision log (`docs/decisions.md`, numbers #n) and the commits. Keep items s
 Stack: JAX, flax.nnx, optax, Crazyflow; CPU only (macOS). Reference implementation:
 Learning on the Fly (LotF, uzh-rpg).
 
+**Relation to indirect PGAC (Algorithm 1 of the PGAC paper; our reading).** The loop has the
+same three steps per time step:
+
+| indirect PGAC (LQR) | this project (drone) |
+|---|---|
+| u_t = K_t x_t + e_t, probing noise for persistent excitation | u = baseline + π_θ, optionally + held thrust noise |
+| model update by recursive least squares | residual update: one Adam step on a sliding window |
+| one policy-gradient step on the LQR cost of the estimated model | one SGD step on the cost of an H-step rollout of the hybrid model |
+| initial stabilising gain, offline PE data | baseline controller (policy starts as baseline); residual starts at zero |
+
+Differences: nonlinear plant, neural residual (not linear in its parameters, so no RLS),
+finite-horizon rollout cost instead of the closed-form LQR cost, a time-varying plant
+(hence forgetting), no guarantees. The identifiability problem in Section 5.3 is the
+persistency-of-excitation condition of PGAC in this setting.
+
 ## 3. Architecture decisions for review
 
 Ordered by how much of the project depends on them.
@@ -208,11 +223,13 @@ the 5 s window.
 | Finite-horizon rollouts live inside the model | H = 30 steps in the hybrid model from the measured state. | consistent |
 | Small, frequent updates (fixed decision 2) | One SGD step per control step. | consistent |
 | At least one clearly nonlinear trajectory, e.g. a looping (fixed decision 3) | Circle, hover, sum of sines so far. Input choice allows loopings; the baseline does not handle them yet. | open |
-| Simulator: visualisation, light, preferably differentiable | Crazyflow: MuJoCo viewer, CPU, differentiable (verified). Replay rendering of runs planned. | consistent, visualisation open |
+| Simulator: visualisation, light, preferably differentiable | Crazyflow: MuJoCo viewer, CPU, differentiable (verified). Recorded runs rendered as animated 3D GIFs (reference vs every controller). | consistent |
 | Drone as environment | yes | consistent |
 
 ## 7. Open questions for the next steps
 
+0. **Order of work:** make the first-order pipeline robust first (identifiability, wind,
+   seeds), or build the zeroth-order pipeline now so that the FO/ZO comparison exists early?
 1. **Online model update:** sliding window (1–2 s works, 5 s fails, Section 5.3);
    exponential forgetting as an alternative; model every control step and policy every
    second step. Is "the model must adapt at least as fast as the policy" the right principle?

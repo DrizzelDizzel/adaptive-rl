@@ -180,7 +180,7 @@ Zuständen, BPTT durch diesen Rollout (Ableitungen #11). LotF-Prinzip.
   Rückführung über die Baseline. Ein SGD-Schritt pro Regeltakt (kein Adam: würde
   FO-Verzerrung gegen ZO-Rauschen verdecken), Clipping auf Gradientennorm 1. Lernen ab 2 s (#4).
 - P6 Baseline-Regler in JAX (`cascaded_control`), gleiche Werte wie numpy (rel. 6e-7),
-  `fly_circle.py` unverändert 1,6 cm (#5).
+  Kreis mit Baseline unverändert 1,6 cm (#5).
 - P7 Erstes Experiment: Kreis, Masse ×1,3 ab t = 10 s, gegen reine Baseline. #9, #13
   bewusst verschoben, bis FO und ZO laufen.
 Gemessen (mittlerer Positionsfehler [cm], 5–10 / 10–12 / 15–20 s): Baseline 2,2 / 32 / 50
